@@ -30,8 +30,11 @@ proto.connect = function (port, host, callback) {
 };
 
 proto.end = function (data, encoding) {
-  if (this.sock) this.sock.end(data, encoding);
-  this.emit('close');
+  if (this.sock) {
+    this.sock.end(data, encoding);
+    this.sock = null;
+    this.emit('close');
+  }
 };
 
 proto._error = function (err) {
@@ -60,9 +63,8 @@ proto._onConnect = function () {
 };
 
 proto._onClose = function (had_error) {
-  this.sock = null;
   if (had_error) this._error(new Error('Underlying socket closed due to an error'));
-  else this.end();;
+  else this.end();
 };
 
 SAM.COMMAND_LINE = /^([^\n]+)\n/;
@@ -105,6 +107,17 @@ samSock.on('handshake', function (success, args) {
 samSock.on('SESSION STATUS', function (args) {
   if (!args.match(/RESULT=OK/)) throw new Error('Session not created: ' + args);
   console.log('session created');
+  samSock.end();
+});
+
+samSock.on('error', function (err) {
+  console.log('ERROR');
+  console.dir(err);
+  samSock.end();
+});
+
+samSock.on('close', function () {
+  console.log('socket closed');
 });
 
 samSock.connect();
