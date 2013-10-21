@@ -29,10 +29,14 @@ proto.connect = function (port, host, callback) {
   this._setupListeners();
 };
 
+proto.end = function (data, encoding) {
+  if (this.sock) this.sock.end(data, encoding);
+  this.emit('close');
+};
+
 proto._error = function (err) {
   this.emit('error', err);
-  if (this.sock) this.sock.close();
-  this.emit('close');
+  this.end();
 };
 
 proto._setupListeners = function () {
@@ -47,13 +51,18 @@ proto._setupListeners = function () {
 };
 
 proto._onConnect = function () {
+  var self = this;
+  this.on('HELLO REPLY', function (args) {
+    if (args.match(/RESULT=OK/)) self.emit('handshake', true);
+    else self.emit('handshake', false, args);
+  });
   this.sock.write('HELLO VERSION MIN=3.0 MAX=3.0\n');
 };
 
 proto._onClose = function (had_error) {
   this.sock = null;
   if (had_error) this._error(new Error('Underlying socket closed due to an error'));
-  else this.emit('close');
+  else this.end();;
 };
 
 SAM.COMMAND_LINE = /^([^\n]+)\n/;
@@ -72,13 +81,7 @@ proto._onData = function (data) {
 
 proto._processCommand = function (cmd) {
   var command = parseCommand(cmd);
-  if (command.cmd === 'HELLO REPLY') {
-    if (command.args.match(/RESULT=OK/)) {
-      console.log('handshake complete');
-    } else {
-      console.log('handshake broked: %s', cmd.args);
-    }
-  }
+  this.emit(command.cmd, command.args);
 };
 
 SAM.COMMAND_PARTS = /(\S+ \S+) (.+)/;
@@ -92,5 +95,17 @@ function parseCommand (cmd) {
 }
 
 var samSock = new SAM();
+
+samSock.on('handshake', function (success, args) {
+  if (!success) throw new Error(args);
+  console.log('handshake complete');
+  samSock.sock.write('SESSION CREATE STYLE=STREAM ID=test2 DESTINATION=TRANSIENT\n');
+});
+
+samSock.on('SESSION STATUS', function (args) {
+  if (!args.match(/RESULT=OK/)) throw new Error('Session not created: ' + args);
+  console.log('session created');
+});
+
 samSock.connect();
 
